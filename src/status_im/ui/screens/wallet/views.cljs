@@ -6,6 +6,7 @@
             [status-im.ui.components.list.views :as list]
             [status-im.ui.components.react :as react]
             [status-im.ui.components.toolbar.view :as toolbar]
+            [status-im.ui.screens.wallet.onboarding.views :as onboarding.views]
             [status-im.ui.screens.wallet.styles :as styles]
             [status-im.ui.screens.wallet.utils :as wallet.utils]
             [status-im.utils.ethereum.core :as ethereum]
@@ -75,7 +76,7 @@
      :data               assets
      :render-fn          render-asset}]])
 
-(views/defview wallet []
+(views/defview wallet-root []
   (views/letsubs [assets          [:wallet/visible-assets-with-amount]
                   portfolio-value [:portfolio-value]]
     [react/view styles/main-section
@@ -90,3 +91,9 @@
       [list/action-list actions
        {:container-style styles/action-section}]
       [asset-section assets]]]))
+
+(views/defview wallet []
+  (views/letsubs [{:keys [wallet-set-up-passed?]} [:get-current-account]]
+    (if wallet-set-up-passed?
+      [wallet-root]
+      [onboarding.views/onboarding])))
