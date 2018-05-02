@@ -14,8 +14,7 @@
             [status-im.data-store.messages :as messages-store]))
 
 (def receive-interceptors
-  [(re-frame/inject-cofx :data-store/get-message)
-   (re-frame/inject-cofx :random-id)
+  [(re-frame/inject-cofx :random-id)
    re-frame/trim-v])
 
 (defn- lookup-response-ref
