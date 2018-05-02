@@ -10,7 +10,8 @@
             [status-im.utils.handlers-macro :as handlers-macro]
             [status-im.transport.utils :as transport.utils]
             [status-im.transport.message.core :as transport]
-            [status-im.transport.message.v1.protocol :as protocol]))
+            [status-im.transport.message.v1.protocol :as protocol]
+            [status-im.data-store.messages :as messages-store]))
 
 (def receive-interceptors
   [(re-frame/inject-cofx :data-store/get-message)
@@ -39,13 +40,13 @@
 (defn- add-message
   [chat-id {:keys [message-id clock-value content] :as message} current-chat? {:keys [db]}]
   (let [prepared-message (prepare-message message chat-id current-chat?)]
-    {:db                    (cond->
-                                (-> db
-                                    (update-in [:chats chat-id :messages] assoc message-id prepared-message)
-                                    (update-in [:chats chat-id :last-clock-value] (partial utils.clocks/receive clock-value))) ; this will increase last-clock-value twice when sending our own messages
-                              (not current-chat?)
-                              (update-in [:chats chat-id :unviewed-messages] (fnil conj #{}) message-id))
-     :data-store/save-message prepared-message}))
+    {:db            (cond->
+                        (-> db
+                            (update-in [:chats chat-id :messages] assoc message-id prepared-message)
+                            (update-in [:chats chat-id :last-clock-value] (partial utils.clocks/receive clock-value))) ; this will increase last-clock-value twice when sending our own messages
+                      (not current-chat?)
+                      (update-in [:chats chat-id :unviewed-messages] (fnil conj #{}) message-id))
+     :data-store/tx [(messages-store/save-message-tx prepared-message)]}))
 
 (defn- prepare-chat [chat-id {:keys [db now] :as cofx}]
   (chat-model/upsert-chat {:chat-id chat-id
@@ -218,8 +219,8 @@
 
 (defn update-message-status [{:keys [chat-id message-id from] :as message} status {:keys [db]}]
   (let [updated-message (assoc-in message [:user-statuses from] status)]
-    {:db                        (assoc-in db [:chats chat-id :messages message-id] updated-message)
-     :data-store/update-message updated-message}))
+    {:db            (assoc-in db [:chats chat-id :messages message-id] updated-message)
+     :data-store/tx [(messages-store/update-message-tx updated-message)]}))
 
 (defn resend-message [chat-id message-id cofx]
   (let [message (get-in cofx [:db :chats chat-id :messages message-id])
@@ -232,8 +233,8 @@
                              (update-message-status message :sending))))
 
 (defn delete-message [chat-id message-id {:keys [db]}]
-  {:db                        (update-in db [:chats chat-id :messages] dissoc message-id)
-   :data-store/delete-message message-id})
+  {:db            (update-in db [:chats chat-id :messages] dissoc message-id)
+   :data-store/tx [(messages-store/delete-message-tx message-id)]})
 
 (defn send-message [{:keys [db now random-id] :as cofx} {:keys [chat-id] :as params}]
   (upsert-and-send (prepare-plain-message chat-id params (get-in db [:chats chat-id]) now) cofx))
