@@ -48,9 +48,9 @@
                          {:keys [message-id user-statuses outgoing] :as msg}]
   (letsubs [current-public-key [:get-current-public-key]]
     (let [delivery-statuses (dissoc user-statuses current-public-key)
-          seen-by-everyone  (and (= (count delivery-statuses) (count contacts)
+          seen-by-everyone  (and (= (count delivery-statuses) (count contacts))
                                     (every? (comp (partial = :seen) second)
-                                            delivery-statuses)))]
+                                            delivery-statuses))]
       (when (and outgoing (or (= chat-id const/console-chat-id)
                               seen-by-everyone))
         [vector-icons/icon :icons/ok {:style styles/status-image}]))))
@@ -91,7 +91,7 @@
 
 (defview home-list-chat-item-inner-view [{:keys [chat-id name color online
                                                  group-chat contacts public?
-                                                 public-key unremovable? :as chat]}]
+                                                 public-key unremovable?] :as chat}]
   (letsubs [last-message [:get-last-message chat-id]]
     (let [name (or (i18n/get-contact-translated chat-id :name name)
                    (gfycat/generate-gfy public-key))
