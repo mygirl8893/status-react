@@ -1,8 +1,7 @@
 (ns status-im.data-store.chats
   (:require [goog.object :as object]
             [cljs.core.async :as async]
-            [re-frame.core :as re-frame]
-            [status-im.data-store.messages :as messages]
+            [re-frame.core :as re-frame] 
             [status-im.data-store.realm.core :as core]))
 
 (defn- normalize-chat [{:keys [chat-id] :as chat}]
