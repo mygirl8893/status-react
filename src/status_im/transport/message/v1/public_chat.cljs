@@ -33,12 +33,12 @@
       {:db (assoc-in db [:transport/chats chat-id :sym-key-id] sym-key-id)
        :shh/add-filter {:web3       web3
                         :sym-key-id sym-key-id
-                        :topic      topic
                         :chat-id    chat-id} 
-       :data-store/tx  [(transport-store/save-transport-tx {:chat-id chat-id
-                                                            :chat    (-> (get-in db [:transport/chats chat-id])
-                                                                         (assoc :sym-key-id sym-key-id)
-                                                                         ;;TODO (yenda) remove once go implements persistence
-                                                                         (assoc :sym-key sym-key))})]
+       :data-store/tx  [(transport-store/save-transport-tx
+                         {:chat-id chat-id
+                          :chat    (-> (get-in db [:transport/chats chat-id])
+                                       (assoc :sym-key-id sym-key-id)
+                                       ;;TODO (yenda) remove once go implements persistence
+                                       (assoc :sym-key sym-key))})]
        :dispatch [:inbox/request-messages {:topics [topic]
                                            :from   0}]})))

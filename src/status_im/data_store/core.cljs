@@ -20,22 +20,18 @@
 (defn change-account [address new-account? encryption-key handler]
   (data-source/change-account address new-account? encryption-key handler))
 
+(defn- perform-transactions [realm]
+  (data-source/write realm #(doseq [transaction transactions]
+                              (transaction realm))))
+
 (re-frame/reg-fx
   :data-store/base-tx
   (fn [transactions]
     (async/go (async/>! data-source/realm-queue
-                        (fn []
-                          (let [realm @data-source/base-realm]
-                            (data-source/write realm
-                                               #(doseq [transaction transactions]
-                                                  (transaction realm)))))))))
+                        (partial perform-transactions @data-source/base-realm)))))
 
 (re-frame/reg-fx
   :data-store/tx
   (fn [transactions]
     (async/go (async/>! data-source/realm-queue
-                        (fn []
-                          (let [realm @data-source/account-realm]
-                            (data-source/write realm
-                                               #(doseq [transaction transactions]
-                                                  (transaction realm)))))))))
+                        (partial perform-transactions @data-source/account-realm)))))
