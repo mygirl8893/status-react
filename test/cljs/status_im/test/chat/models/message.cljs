@@ -8,12 +8,6 @@
                               {:message-id "message-id"
                                :from "a"
                                :chat-id "a"})))
-  (testing "it returns false when from is the same as pk"
-    (is (not (message/add-to-chat? {:db {:current-public-key "pk"
-                                         :chats {"a" {}}}}
-                                   {:message-id "message-id"
-                                    :from "pk"
-                                    :chat-id "a"}))))
   (testing "it returns false when it's already in the loaded message"
     (is (not (message/add-to-chat? {:db {:chats {"a" {:messages {"message-id" {}}}}}}
                                    {:message-id "message-id"

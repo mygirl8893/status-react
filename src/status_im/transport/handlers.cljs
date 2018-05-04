@@ -2,10 +2,12 @@
     status-im.transport.handlers
   (:require [re-frame.core :as re-frame]
             [status-im.utils.handlers :as handlers]
+            [status-im.constants :as constants]
             [status-im.transport.message.core :as message]
             [status-im.transport.core :as transport]
             [status-im.chat.models :as models.chat]
             [status-im.utils.datetime :as datetime]
+            [status-im.utils.utils :as utils]
             [taoensso.timbre :as log]
             [status-im.transport.utils :as transport.utils]
             [cljs.reader :as reader]
@@ -14,6 +16,8 @@
             [status-im.transport.filters :as filters]
             [status-im.transport.message.core :as message]
             [status-im.utils.handlers-macro :as handlers-macro]
+            [status-im.transport.inbox :as inbox]
+            [status-im.i18n :as i18n]
             [status-im.transport.message.v1.contact :as v1.contact]
             [status-im.transport.message.v1.group-chat :as v1.group-chat]))
 
@@ -119,21 +123,102 @@
                               (message/send (v1.group-chat/NewGroupKey. chat-id sym-key message) chat-id)))))
 
 (handlers/register-handler-fx
- :group/add-new-sym-key
- [re-frame/trim-v (re-frame/inject-cofx :random-id)]
- (fn [{:keys [db] :as cofx} [{:keys [sym-key-id sym-key chat-id signature message]}]]
-   (let [{:keys [web3 current-public-key]} db
-         fx {:db (assoc-in db [:transport/chats chat-id :sym-key-id] sym-key-id)
-             :shh/add-filter {:web3       web3
-                              :sym-key-id sym-key-id
-                              :topic      (transport.utils/get-topic chat-id)
-                              :chat-id    chat-id}
-             :data-store.transport/save {:chat-id chat-id
-                                         :chat (-> (get-in db [:transport/chats chat-id])
-                                                   (assoc :sym-key-id sym-key-id)
-                                                   ;;TODO (yenda) remove once go implements persistence
-                                                   (assoc :sym-key sym-key))}}]
-     ;; if new sym-key is wrapping some message, call receive on it as well, if not just update the transport layer
-     (if message
-       (handlers-macro/merge-fx cofx fx (message/receive message chat-id signature))
-       fx))))
+  :group/add-new-sym-key
+  [re-frame/trim-v (re-frame/inject-cofx :random-id)]
+  (fn [{:keys [db] :as cofx} [{:keys [sym-key-id sym-key chat-id signature message]}]]
+    (let [{:keys [web3 current-public-key]} db
+          fx {:db (assoc-in db [:transport/chats chat-id :sym-key-id] sym-key-id)
+              :shh/add-filter {:web3       web3
+                               :sym-key-id sym-key-id
+                               :topic      (transport.utils/get-topic chat-id)
+                               :chat-id    chat-id}
+              :data-store.transport/save {:chat-id chat-id
+                                          :chat (-> (get-in db [:transport/chats chat-id])
+                                                    (assoc :sym-key-id sym-key-id)
+                                                    ;;TODO (yenda) remove once go implements persistence
+                                                    (assoc :sym-key sym-key))}}]
+      ;; if new sym-key is wrapping some message, call receive on it as well, if not just update the transport layer
+      (if message
+        (handlers-macro/merge-fx cofx fx (message/receive message chat-id signature))
+        fx))))
+
+
+;;;; Handlers
+
+(handlers/register-handler-fx
+  :inbox/add-peer
+  ;; This event adds a wnode to the list of peers
+  (fn [_ [_ wnode]]
+    {:inbox/add-peer {:wnode wnode}}))
+
+(handlers/register-handler-fx
+  :inbox/fetch-peers
+  ;; This event fetches the list of peers
+  ;; We want it to check if the node has been added
+  (fn [_ [_ retries]]
+    {:inbox/fetch-peers (or retries 0)}))
+
+(handlers/register-handler-fx
+  :inbox/check-peer-added
+  ;; We check if the wnode is part of the peers list
+  ;; if not we dispatch a new fetch-peer event for later
+  (fn [{:keys [db]} [_ peers retries]]
+    (let [web3     (:web3 db)
+          wnode    (inbox/get-current-wnode-address db)]
+      (log/info "offline inbox: fetch-peers response" peers)
+      (if (inbox/registered-peer? peers wnode)
+        {:inbox/mark-trusted-peer {:web3  web3
+                                   :wnode wnode}}
+        (do
+          (log/info "Peer" wnode "is not registered. Retrying fetch peers.")
+          (let [delay (if (< retries 3) 300 5000)]
+            (if (> retries 10)
+              (do (log/error :mailserver-connection-error)
+                  (utils/show-popup (i18n/label :t/error)
+                                    (i18n/label :t/mailserver-connection-error)))
+              {:dispatch-later [{:ms delay :dispatch [:inbox/fetch-peers (inc retries)]}]})))))))
+
+
+
+(handlers/register-handler-fx
+  :inbox/get-sym-key
+  (fn [{:keys [db]} _]
+    (let [web3     (:web3 db)
+          wnode    (inbox/get-current-wnode-address db)
+          password (:inbox/password db)]
+      {:shh/generate-sym-key-from-password {:password   password
+                                            :web3       web3
+                                            :on-success (fn [_ sym-key-id]
+                                                          (re-frame/dispatch [:inbox/get-sym-key-success sym-key-id]))
+                                            :on-error   #(log/error "offline inbox: get-sym-key error" %)}})))
+
+(handlers/register-handler-fx
+  :inbox/get-sym-key-success
+  (fn [{:keys [db]} [_ sym-key-id]]
+    {:db (assoc db :inbox/sym-key-id sym-key-id)}))
+
+(handlers/register-handler-fx
+  :inbox/connection-success
+  (fn [{:keys [db]} _]
+    {:db (assoc db :mailserver-status :connected)}))
+
+
+(handlers/register-handler-fx
+  :inbox/request-messages
+  (fn [{:keys [db now]} [_ {:keys [from topics discover?]}]]
+    (let [web3     (:web3 db)
+          wnode    (inbox/get-current-wnode-address db)
+          topics   (or topics
+                       (map #(:topic %) (vals (:transport/chats db))))
+          from     (or from (:inbox/last-request db) nil)
+          sym-key-id (:inbox/sym-key-id db)]
+      {:inbox/request-messages {:wnode      wnode
+                                :topics     (if discover?
+                                              (conj topics (transport.utils/get-topic constants/contact-discovery))
+                                              topics)
+                                ;;TODO (yenda) fix from, right now mailserver is dropping us
+                                ;;when we send a requestMessage with a from field
+                                ;;:from       from
+                                :sym-key-id sym-key-id
+                                :web3       web3}
+       :db (assoc db :inbox/last-request (quot now 1000))})))

@@ -69,26 +69,30 @@
         request-command                           (:request-command content)
         command-request?                          (and (= content-type constants/content-type-command-request)
                                                        request-command)
-        new-timestamp                             (or timestamp now)]
+        new-timestamp                             (or timestamp now)
+        outgoing?                                 (= public-key from)]
     (handlers-macro/merge-fx cofx
-                       (add-message chat-id
-                                    (cond-> (assoc message
-                                                   :timestamp        new-timestamp
-                                                   :show?            true)
-                                      public-key
-                                      (assoc :user-statuses {public-key (if current-chat? :seen :received)})
+                             (add-message chat-id
+                                          (cond-> (assoc message
+                                                         :timestamp        new-timestamp
+                                                         :show?            true
+                                                         :outgoing         outgoing?)
+                                            public-key
+                                            (assoc :user-statuses {public-key (if outgoing?
+                                                                                :sent
+                                                                                (if current-chat? :seen :received))})
 
-                                      (not clock-value)
-                                      (assoc :clock-value (utils.clocks/send last-clock-value)) ; TODO (cammeelos): for backward compatibility, we use received time to be removed when not an issue anymore
-                                      command-request?
-                                      (assoc-in [:content :request-command-ref]
-                                                (lookup-response-ref access-scope->commands-responses
-                                                                     current-account chat contacts request-command)))
-                                    current-chat?)
-                       (send-message-seen chat-id message-id (and public-key
-                                                                  current-chat?
-                                                                  (not (chat-model/bot-only-chat? db chat-id))
-                                                                  (not (= constants/system from)))))))
+                                            (not clock-value)
+                                            (assoc :clock-value (utils.clocks/send last-clock-value)) ; TODO (cammeelos): for backward compatibility, we use received time to be removed when not an issue anymore
+                                            command-request?
+                                            (assoc-in [:content :request-command-ref]
+                                                      (lookup-response-ref access-scope->commands-responses
+                                                                           current-account chat contacts request-command)))
+                                          current-chat?)
+                             (send-message-seen chat-id message-id (and public-key
+                                                                        current-chat?
+                                                                        (not (chat-model/bot-only-chat? db chat-id))
+                                                                        (not (= constants/system from)))))))
 
 (defn receive
   [{:keys [chat-id message-id] :as message} {:keys [now] :as cofx}]
@@ -118,9 +122,8 @@
   [{:keys [db]} {:keys [chat-id from message-id] :as message}]
   (let [{:keys [chats current-public-key]} db
         {:keys [messages not-loaded-message-ids]} (get chats chat-id)]
-    (when (not= from current-public-key)
-      (not (or (get messages message-id)
-               (get not-loaded-message-ids message-id))))))
+    (not (or (get messages message-id)
+             (get not-loaded-message-ids message-id)))))
 
 (defn message-seen-by? [message user-pk]
   (= :seen (get-in message [:user-statuses user-pk])))
